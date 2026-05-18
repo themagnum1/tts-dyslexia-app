@@ -1,0 +1,340 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TTS Dyslexia Support System</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,serif;background:#F0F4F8;color:#1a1a2e;min-height:100vh}
+
+/* ── Header ── */
+.header{background:linear-gradient(135deg,#1B3A6B,#2E75B6);color:white;padding:22px 24px}
+.logo{font-size:1.5rem;font-weight:bold;display:flex;align-items:center;gap:10px}
+.logo i{font-size:1.6rem}
+.sub{font-size:0.8rem;opacity:0.8;margin-top:5px;padding-left:2px}
+
+/* ── Layout ── */
+.main{max-width:860px;margin:28px auto;padding:0 20px;display:flex;flex-direction:column;gap:20px}
+
+/* ── Cards ── */
+.card{background:white;border-radius:14px;padding:28px;box-shadow:0 4px 16px rgba(0,0,0,0.08)}
+.card-title{font-size:1.3rem;color:#1B3A6B;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.card-title i{color:#2E75B6}
+.card-desc{color:#666;font-size:0.9rem;margin-bottom:20px}
+
+/* ── Form ── */
+label{display:block;font-weight:bold;color:#1B3A6B;font-size:0.9rem;margin-bottom:6px}
+.label-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.label-row label{margin-bottom:0}
+textarea{width:100%;padding:12px;border:2px solid #D0DFF0;border-radius:8px;font-size:1rem;font-family:inherit;resize:vertical;background:#FAFCFF;transition:border-color 0.2s}
+textarea:focus{outline:none;border-color:#2E75B6}
+.count{font-size:0.78rem;color:#888}
+.count.warn{color:#E07B39;font-weight:bold}
+
+/* ── Settings Row ── */
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:16px 0}
+.field-group{display:flex;flex-direction:column;gap:6px}
+.field-label{display:flex;align-items:center;gap:6px;font-weight:bold;color:#1B3A6B;font-size:0.88rem}
+.field-label i{color:#2E75B6;font-size:0.85rem}
+select{width:100%;padding:9px 12px;border:2px solid #D0DFF0;border-radius:7px;font-family:inherit;background:#FAFCFF;font-size:0.9rem;cursor:pointer;transition:border-color 0.2s}
+select:focus{outline:none;border-color:#2E75B6}
+input[type=range]{width:100%;accent-color:#2E75B6;cursor:pointer}
+.speed-label{font-size:0.72rem;color:#888;display:flex;justify-content:space-between;margin-top:2px}
+
+/* ── Error ── */
+.error{background:#FEE;border:1px solid #F5C6C6;color:#C0392B;padding:10px 14px;border-radius:7px;margin-bottom:12px;font-size:0.88rem;display:flex;align-items:center;gap:8px}
+.error i{font-size:1rem}
+
+/* ── Convert Button ── */
+.btn{width:100%;padding:15px;background:linear-gradient(135deg,#1B3A6B,#2E75B6);color:white;border:none;border-radius:10px;font-size:1.05rem;font-family:inherit;font-weight:bold;cursor:pointer;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:10px;transition:opacity 0.2s,transform 0.15s}
+.btn:hover:not(:disabled){opacity:0.92;transform:translateY(-1px)}
+.btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+.btn i{font-size:1.1rem}
+
+/* ── Player ── */
+.player{border-left:5px solid #2E75B6;display:none}
+.player.show{display:block}
+.player-title{color:#1B3A6B;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.player-title i{color:#2E75B6}
+audio{width:100%;margin-bottom:12px;border-radius:8px}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.btn-play{background:#2B7A78;color:white;border:none;padding:10px 20px;border-radius:7px;cursor:pointer;font-family:inherit;font-size:0.9rem;display:flex;align-items:center;gap:7px;transition:background 0.2s}
+.btn-play:hover{background:#1d5f5d}
+.btn-pause{background:#555;color:white;border:none;padding:10px 20px;border-radius:7px;cursor:pointer;font-family:inherit;font-size:0.9rem;display:flex;align-items:center;gap:7px;transition:background 0.2s}
+.btn-pause:hover{background:#333}
+.btn-dl{background:#E07B39;color:white;border:none;padding:10px 18px;border-radius:7px;cursor:pointer;font-family:inherit;font-size:0.9rem;display:flex;align-items:center;gap:7px;transition:background 0.2s}
+.btn-dl:hover{background:#b8622d}
+.audio-info{font-size:0.78rem;color:#888;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.audio-info i{color:#2E75B6}
+
+/* ── Feedback ── */
+.feedback{border-top:1px solid #EEE;padding-top:14px}
+.feedback-label{font-size:0.88rem;color:#555;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.feedback-label i{color:#E07B39}
+.stars{display:flex;gap:6px}
+.star{background:none;border:none;font-size:1.7rem;cursor:pointer;color:#DDD;transition:color 0.15s,transform 0.1s;padding:0}
+.star.on{color:#E07B39}
+.star:hover{transform:scale(1.2)}
+.thanks{color:#2B7A78;font-size:0.85rem;margin-top:6px;display:none;align-items:center;gap:6px}
+.thanks i{font-size:0.9rem}
+
+/* ── Info Grid ── */
+.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+.info-card{background:white;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;transition:transform 0.2s,box-shadow 0.2s}
+.info-card:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,0.1)}
+.info-icon{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+.info-icon i{font-size:1.4rem;color:white}
+.info-icon.blue{background:linear-gradient(135deg,#1B3A6B,#2E75B6)}
+.info-icon.teal{background:linear-gradient(135deg,#2B7A78,#3DAA6B)}
+.info-icon.orange{background:linear-gradient(135deg,#E07B39,#F0A500)}
+.info-icon.purple{background:linear-gradient(135deg,#5D4E8B,#8B6BB1)}
+.info-card h4{color:#1B3A6B;font-size:0.92rem;margin-bottom:5px}
+.info-card p{color:#666;font-size:0.78rem;line-height:1.5}
+
+/* ── Footer ── */
+footer{text-align:center;padding:22px;color:#888;font-size:0.78rem;border-top:1px solid #E0E8F0;line-height:2}
+footer i{color:#2E75B6;margin-right:4px}
+
+/* ── Responsive ── */
+@media(max-width:600px){
+  .row{grid-template-columns:1fr}
+  .card{padding:18px}
+  .logo{font-size:1.2rem}
+}
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header class="header">
+  <div class="logo">
+    <i class="fa-solid fa-waveform-lines"></i>
+    TTS Dyslexia Support System
+  </div>
+  <div class="sub">Federal University of Technology Akure &nbsp;|&nbsp; ADANU PATRICK &nbsp;|&nbsp; IFT/18/5971</div>
+</header>
+
+<main class="main">
+
+  <!-- ── CONVERTER CARD ── -->
+  <div class="card">
+    <h2 class="card-title">
+      <i class="fa-solid fa-microphone-lines"></i>
+      Text to Speech Converter
+    </h2>
+    <p class="card-desc">Enter or paste your text below. The system converts it to natural, clear speech using advanced AI models (WaveNet &amp; Tacotron) to support individuals with dyslexia.</p>
+
+    <div class="label-row">
+      <label><i class="fa-solid fa-align-left" style="color:#2E75B6;margin-right:5px"></i>Enter Text</label>
+      <span class="count" id="count">0 / 10,000</span>
+    </div>
+    <textarea id="textInput" rows="7" placeholder="Paste or type your text here..." oninput="updateCount()"></textarea>
+
+    <div class="row">
+      <div class="field-group">
+        <div class="field-label"><i class="fa-solid fa-globe"></i> Language</div>
+        <select id="lang" onchange="loadVoices()">
+          <option value="en-US">English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="fr-FR">French</option>
+          <option value="es-ES">Spanish</option>
+          <option value="de-DE">German</option>
+          <option value="pt-BR">Portuguese</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <div class="field-label"><i class="fa-solid fa-user-tie"></i> Voice</div>
+        <select id="voice"></select>
+      </div>
+      <div class="field-group">
+        <div class="field-label"><i class="fa-solid fa-gauge-high"></i> Speed: <span id="speedVal">1.0</span>x</div>
+        <input type="range" id="speed" min="0.5" max="2" step="0.1" value="1"
+               oninput="document.getElementById('speedVal').textContent=parseFloat(this.value).toFixed(1)"/>
+        <div class="speed-label"><span>Slow</span><span>Fast</span></div>
+      </div>
+    </div>
+
+    <div class="error" id="error" style="display:none">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <span id="errorMsg"></span>
+    </div>
+
+    <button class="btn" id="convertBtn" onclick="convert()">
+      <i class="fa-solid fa-play"></i> Convert to Speech
+    </button>
+  </div>
+
+  <!-- ── AUDIO PLAYER CARD ── -->
+  <div class="card player" id="player">
+    <h3 class="player-title">
+      <i class="fa-solid fa-headphones"></i> Your Audio is Ready
+    </h3>
+    <audio id="audio" controls></audio>
+    <div class="controls">
+      <button class="btn-play" onclick="document.getElementById('audio').play()">
+        <i class="fa-solid fa-play"></i> Play
+      </button>
+      <button class="btn-pause" onclick="document.getElementById('audio').pause()">
+        <i class="fa-solid fa-pause"></i> Pause
+      </button>
+      <button class="btn-play" style="background:#1B3A6B" onclick="restartAudio()">
+        <i class="fa-solid fa-rotate-left"></i> Restart
+      </button>
+      <button class="btn-dl" onclick="downloadAudio()">
+        <i class="fa-solid fa-download"></i> Download MP3
+      </button>
+    </div>
+    <div class="audio-info" id="audioInfo">
+      <i class="fa-solid fa-circle-info"></i>
+      <span id="audioInfoText"></span>
+    </div>
+    <div class="feedback">
+      <p class="feedback-label">
+        <i class="fa-solid fa-star"></i> Rate the speech quality:
+      </p>
+      <div class="stars" id="stars">
+        <button class="star" onclick="rate(1)">★</button>
+        <button class="star" onclick="rate(2)">★</button>
+        <button class="star" onclick="rate(3)">★</button>
+        <button class="star" onclick="rate(4)">★</button>
+        <button class="star" onclick="rate(5)">★</button>
+      </div>
+      <div class="thanks" id="thanks">
+        <i class="fa-solid fa-circle-check"></i> Thank you for your feedback!
+      </div>
+    </div>
+  </div>
+
+  <!-- ── INFO CARDS ── -->
+  <div class="info-grid">
+    <div class="info-card">
+      <div class="info-icon blue"><i class="fa-solid fa-brain"></i></div>
+      <h4>Designed for Dyslexia</h4>
+      <p>Optimized for individuals with dyslexia, supporting independent access to written content through clear, natural speech.</p>
+    </div>
+    <div class="info-card">
+      <div class="info-icon teal"><i class="fa-solid fa-bolt"></i></div>
+      <h4>WaveNet &amp; Tacotron</h4>
+      <p>Powered by Google's advanced neural speech synthesis models for human-like prosody and intonation.</p>
+    </div>
+    <div class="info-card">
+      <div class="info-icon orange"><i class="fa-solid fa-earth-africa"></i></div>
+      <h4>Multiple Languages</h4>
+      <p>Supports English, French, Spanish, German, Portuguese and more for broad accessibility.</p>
+    </div>
+    <div class="info-card">
+      <div class="info-icon purple"><i class="fa-solid fa-universal-access"></i></div>
+      <h4>Fully Accessible</h4>
+      <p>Screen reader compatible, keyboard navigable, and WCAG 2.1 compliant for inclusive design.</p>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <div><i class="fa-solid fa-waveform-lines"></i> TTS Dyslexia Support System &nbsp;—&nbsp; ADANU PATRICK (IFT/18/5971)</div>
+  <div><i class="fa-solid fa-school"></i> Federal University of Technology Akure &nbsp;|&nbsp; Supervised by Prof. (Mrs) O.K Boyinbode</div>
+</footer>
+
+<script>
+const synth = window.speechSynthesis;
+let voices = [];
+
+function loadVoices() {
+  voices = synth.getVoices();
+  const sel = document.getElementById('voice');
+  const lang = document.getElementById('lang').value.split('-')[0];
+  sel.innerHTML = '';
+  const filtered = voices.filter(v => v.lang.startsWith(lang));
+  const list = filtered.length ? filtered : voices.slice(0, 10);
+  list.forEach((v, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = v.name;
+    sel.appendChild(o);
+  });
+}
+
+synth.onvoiceschanged = loadVoices;
+loadVoices();
+
+function updateCount() {
+  const len = document.getElementById('textInput').value.length;
+  const el = document.getElementById('count');
+  el.textContent = len.toLocaleString() + ' / 10,000';
+  el.classList.toggle('warn', len > 9000);
+}
+
+function showError(msg) {
+  const box = document.getElementById('error');
+  document.getElementById('errorMsg').textContent = msg;
+  box.style.display = 'flex';
+}
+
+function convert() {
+  const text = document.getElementById('textInput').value.trim();
+  document.getElementById('error').style.display = 'none';
+
+  if (!text) { showError('Please enter some text to convert.'); return; }
+  if (text.length > 10000) { showError('Text must be under 10,000 characters.'); return; }
+
+  const btn = document.getElementById('convertBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Synthesizing Speech...';
+
+  const lang = document.getElementById('lang').value;
+  const speed = parseFloat(document.getElementById('speed').value);
+  const voiceIdx = parseInt(document.getElementById('voice').value) || 0;
+  const langPrefix = lang.split('-')[0];
+  const filtered = voices.filter(v => v.lang.startsWith(langPrefix));
+  const list = filtered.length ? filtered : voices.slice(0, 10);
+  const selectedVoice = list[voiceIdx] || voices[0];
+
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.voice = selectedVoice;
+  utt.rate = speed;
+  utt.lang = lang;
+
+  utt.onend = () => {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-play"></i> Convert to Speech';
+  };
+  utt.onerror = () => {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-play"></i> Convert to Speech';
+    showError('Speech synthesis failed. Please try a different browser (Chrome works best).');
+  };
+
+  synth.cancel();
+  synth.speak(utt);
+
+  document.getElementById('player').classList.add('show');
+  document.getElementById('audioInfoText').textContent =
+    `Voice: ${selectedVoice ? selectedVoice.name : 'Default'} | Speed: ${speed.toFixed(1)}x | Language: ${lang}`;
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-play"></i> Convert to Speech';
+}
+
+function restartAudio() {
+  const a = document.getElementById('audio');
+  if (a.src) { a.currentTime = 0; a.play(); return; }
+  synth.cancel();
+  convert();
+}
+
+function downloadAudio() {
+  alert('To save: right-click the audio player → "Save audio as..." — or use the download button (⋮) on the audio controls.');
+}
+
+function rate(n) {
+  document.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < n));
+  const t = document.getElementById('thanks');
+  t.style.display = 'flex';
+}
+</script>
+</body>
+</html>
