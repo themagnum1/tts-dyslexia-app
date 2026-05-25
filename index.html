@@ -396,24 +396,27 @@ footer a{color:#2ecc71;text-decoration:none}
 </footer>
 
 <script>
-// ─── Setup ────────────────────────────────────────────────
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const synth = window.speechSynthesis;
-let currentUtt = null;
 let currentText = '';
 let translateOn = false;
 let currentBlob = null;
+// Pause tracking
+let pausedAtChar = 0;
+let isPaused = false;
+let isSpeaking = false;
 
-// Force voice list to load
-synth.getVoices();
-if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = () => synth.getVoices();
+// Load voices early
+let voiceList = [];
+function loadVoices() { voiceList = synth.getVoices(); }
+loadVoices();
+if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
 
-// ─── File Upload ──────────────────────────────────────────
+// ── File Upload ───────────────────────────────────────────
 const fileInput = document.getElementById('fileInput');
 fileInput.addEventListener('change', () => {
   if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
 });
-
 const uploadArea = document.getElementById('uploadArea');
 uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('over'); });
 uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('over'));
@@ -424,9 +427,7 @@ uploadArea.addEventListener('drop', e => {
 
 async function handleFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
-  if (!['pdf','doc','docx','txt'].includes(ext)) {
-    showErr('Please upload a PDF, DOC, DOCX, or TXT file.'); return;
-  }
+  if (!['pdf','doc','docx','txt'].includes(ext)) { showErr('Please upload a PDF, DOC, DOCX, or TXT file.'); return; }
   clearErr();
   showFileLoading('Reading ' + file.name + '...');
   try {
@@ -441,59 +442,45 @@ async function handleFile(file) {
     document.getElementById('fileName').textContent = file.name;
     document.getElementById('fileBar').classList.add('show');
     showOk('File loaded! Click "Generate & Play Speech" to listen.');
-  } catch(e) {
-    showErr('Could not read file: ' + e.message);
-  }
+  } catch(e) { showErr('Could not read file: ' + e.message); }
   hideFileLoading();
 }
-
 async function readPDF(file) {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let out = '';
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    out += content.items.map(s => s.str).join(' ') + '\n\n';
+    const c = await page.getTextContent();
+    out += c.items.map(s => s.str).join(' ') + '
+
+';
   }
   return out;
 }
-
 async function readDOC(file) {
   const buf = await file.arrayBuffer();
-  const result = await mammoth.extractRawText({ arrayBuffer: buf });
-  return result.value;
+  const r = await mammoth.extractRawText({ arrayBuffer: buf });
+  return r.value;
 }
-
 function clearFile() {
   fileInput.value = '';
   document.getElementById('fileBar').classList.remove('show');
   document.getElementById('previewBox').textContent = '';
-  currentText = '';
-  updateCount();
+  currentText = ''; updateCount();
 }
+function showFileLoading(msg) { document.getElementById('fileLoadMsg').textContent = msg; document.getElementById('fileLoading').style.display = 'block'; }
+function hideFileLoading() { document.getElementById('fileLoading').style.display = 'none'; }
 
-function showFileLoading(msg) {
-  document.getElementById('fileLoadMsg').textContent = msg;
-  document.getElementById('fileLoading').style.display = 'block';
-}
-function hideFileLoading() {
-  document.getElementById('fileLoading').style.display = 'none';
-}
-
-// ─── Text Preview ─────────────────────────────────────────
 function updateCount() {
   const n = (document.getElementById('previewBox').textContent || '').length;
   const el = document.getElementById('charCount');
   el.textContent = n.toLocaleString() + ' / 5,000 characters';
   el.className = 'char-count' + (n > 4500 ? ' warn' : '');
 }
+function getText() { return (document.getElementById('previewBox').textContent || '').trim(); }
 
-function getText() {
-  return (document.getElementById('previewBox').textContent || '').trim();
-}
-
-// ─── Lang / Translate ─────────────────────────────────────
+// ── Lang / Translate ──────────────────────────────────────
 function onLangChange() {
   const lang = document.getElementById('lang').value.split('-')[0];
   if (['yo','ig','ha'].includes(lang) && !translateOn) {
@@ -503,13 +490,11 @@ function onLangChange() {
     document.getElementById('transTo').value = lang;
   }
 }
-
 function toggleTrans() {
   translateOn = !translateOn;
   document.getElementById('sw').classList.toggle('on', translateOn);
   document.getElementById('transOpts').classList.toggle('show', translateOn);
 }
-
 async function doTranslate(text, from, to) {
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,500))}&langpair=${from}|${to}`;
   const r = await fetch(url);
@@ -518,17 +503,15 @@ async function doTranslate(text, from, to) {
   throw new Error('Translation failed');
 }
 
-// ─── CONVERT — uses Web Speech API (always works) ─────────
+// ── CONVERT ───────────────────────────────────────────────
 async function convert() {
   const text = getText();
   clearErr(); clearOk();
   if (!text) { showErr('Please upload a file or type some text first.'); return; }
   if (text.length > 5000) { showErr('Text must be under 5,000 characters.'); return; }
 
-  // Stop any current speech
-  synth.cancel();
-  currentBlob = null;
-  setDlEnabled(false);
+  synth.cancel(); isPaused = false; isSpeaking = false; pausedAtChar = 0;
+  currentBlob = null; setDlEnabled(false);
 
   const btn = document.getElementById('genBtn');
   btn.disabled = true;
@@ -536,8 +519,6 @@ async function convert() {
   document.getElementById('genTxt').textContent = 'Processing...';
 
   let speakText = text;
-
-  // Translate if on
   if (translateOn) {
     showStatus('gen', 'Translating...');
     try {
@@ -546,21 +527,14 @@ async function convert() {
       speakText = await doTranslate(text, from, to);
       document.getElementById('transText').textContent = speakText;
       document.getElementById('transBox').classList.add('show');
-    } catch(e) {
-      document.getElementById('transBox').classList.remove('show');
-    }
-  } else {
-    document.getElementById('transBox').classList.remove('show');
-  }
+    } catch(e) { document.getElementById('transBox').classList.remove('show'); }
+  } else { document.getElementById('transBox').classList.remove('show'); }
 
   currentText = speakText;
+  speakFrom(0); // Always start from beginning
 
-  // Now speak with best available voice
-  showStatus('gen', 'Starting speech...');
-  speakWithBestVoice(speakText);
-
-  // Also try to fetch downloadable audio in background
-  fetchDownloadableAudio(speakText);
+  // Fetch downloadable audio in background via our serverless API
+  fetchAudioForDownload(speakText);
 
   btn.disabled = false;
   document.getElementById('genIcon').className = 'fa-solid fa-play';
@@ -568,99 +542,152 @@ async function convert() {
   hideStatus('gen');
 }
 
-// ─── SPEECH — picks the most human voice available ────────
-function speakWithBestVoice(text) {
+// ── SPEAK FROM CHARACTER POSITION ────────────────────────
+// This is the key fix: instead of synth.resume() (broken in Chrome),
+// we restart the utterance from the paused character position
+function speakFrom(charIndex) {
   synth.cancel();
+  isPaused = false;
   const locale = document.getElementById('lang').value;
   const rate   = parseFloat(document.getElementById('speed').value);
   const langCode = locale.split('-')[0];
 
-  const voices = synth.getVoices();
+  // Get text from charIndex onward
+  const textToSpeak = currentText.slice(charIndex);
+  if (!textToSpeak.trim()) return;
 
-  // Pick the best voice: prefer Google Neural/WaveNet voices
-  let voice = null;
+  // Pick best voice
+  if (!voiceList.length) voiceList = synth.getVoices();
   const preferred = ['Google UK English Female','Google US English','Google UK English Male',
-                     'Google','Neural','Natural','Premium','Enhanced','Samantha','Alex'];
-
-  // 1. Best named voice for this locale
+                     'Google','Neural','Natural','Premium','Enhanced','Samantha'];
+  let voice = null;
   for (const name of preferred) {
-    voice = voices.find(v => v.lang.toLowerCase().startsWith(langCode) && v.name.includes(name));
+    voice = voiceList.find(v => v.lang.toLowerCase().startsWith(langCode) && v.name.includes(name));
     if (voice) break;
   }
-  // 2. Any online voice for this locale
-  if (!voice) voice = voices.find(v => v.lang.toLowerCase().startsWith(langCode) && !v.localService);
-  // 3. Any voice for this locale
-  if (!voice) voice = voices.find(v => v.lang.toLowerCase().startsWith(langCode));
-  // 4. Google English as fallback
-  if (!voice) voice = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'));
-  // 5. Any online voice
-  if (!voice) voice = voices.find(v => !v.localService);
-  // 6. First available
-  if (!voice && voices.length) voice = voices[0];
+  if (!voice) voice = voiceList.find(v => v.lang.toLowerCase().startsWith(langCode) && !v.localService);
+  if (!voice) voice = voiceList.find(v => v.lang.toLowerCase().startsWith(langCode));
+  if (!voice) voice = voiceList.find(v => v.name.includes('Google') && v.lang.startsWith('en'));
+  if (!voice) voice = voiceList.find(v => !v.localService);
+  if (!voice && voiceList.length) voice = voiceList[0];
 
-  const utt = new SpeechSynthesisUtterance(text);
+  const utt = new SpeechSynthesisUtterance(textToSpeak);
   if (voice) { utt.voice = voice; utt.lang = voice.lang; }
   else utt.lang = locale;
   utt.rate  = rate;
   utt.pitch = 1.0;
 
-  utt.onstart = () => {
-    setWave(true);
-    setBigIcon(true);
-    const vName = voice ? voice.name : 'Default';
-    document.getElementById('nowText').textContent = vName + ' · ' + rate.toFixed(1) + 'x speed';
-    document.getElementById('nowPlaying').classList.add('show');
-    showOk('Playing — ' + vName);
-  };
-  utt.onpause  = () => { setWave(false); setBigIcon(false); };
-  utt.onresume = () => { setWave(true);  setBigIcon(true);  };
-  utt.onend    = () => { setWave(false); setBigIcon(false); };
-  utt.onerror  = (e) => {
-    setWave(false); setBigIcon(false);
-    showErr('Speech error: ' + e.error + '. Try Chrome or Edge for best results.');
+  // Track word position for accurate pause/resume
+  utt.onboundary = (e) => {
+    if (e.name === 'word') pausedAtChar = charIndex + e.charIndex;
   };
 
-  currentUtt = utt;
+  utt.onstart = () => {
+    isSpeaking = true; isPaused = false;
+    setWave(true); setBigIcon(true);
+    const vName = voice ? voice.name : 'Default';
+    document.getElementById('nowText').textContent = vName + ' · ' + rate.toFixed(1) + 'x';
+    document.getElementById('nowPlaying').classList.add('show');
+  };
+  utt.onend = () => {
+    isSpeaking = false; isPaused = false; pausedAtChar = 0;
+    setWave(false); setBigIcon(false);
+  };
+  utt.onerror = (e) => {
+    if (e.error === 'interrupted') return; // normal when we cancel
+    isSpeaking = false;
+    setWave(false); setBigIcon(false);
+    if (e.error !== 'canceled') showErr('Speech error: ' + e.error);
+  };
+
   synth.speak(utt);
 }
 
-// ─── BACKGROUND AUDIO FETCH for download ─────────────────
-async function fetchDownloadableAudio(text) {
-  document.getElementById('dlNote').textContent = 'Fetching downloadable audio in background...';
-  const langCode = document.getElementById('lang').value.split('-')[0];
+// ── CONTROLS ──────────────────────────────────────────────
+function togglePause() {
+  if (!currentText) return;
+
+  if (!isSpeaking && !isPaused) {
+    // Not started or ended — start fresh
+    pausedAtChar = 0;
+    speakFrom(0);
+    return;
+  }
+
+  if (isSpeaking && !isPaused) {
+    // Currently playing → PAUSE
+    // Cancel the utterance and remember where we are
+    isPaused = true;
+    isSpeaking = false;
+    synth.cancel(); // cancel, position was saved in onboundary
+    setWave(false); setBigIcon(false);
+    showOk('Paused at position ' + pausedAtChar + '. Press Play to resume.');
+    return;
+  }
+
+  if (isPaused) {
+    // Was paused → RESUME from saved position
+    isPaused = false;
+    speakFrom(pausedAtChar);
+    return;
+  }
+}
+
+function restartSpeech() {
+  pausedAtChar = 0; isPaused = false;
+  speakFrom(0);
+}
+
+function stopSpeech() {
+  synth.cancel();
+  isSpeaking = false; isPaused = false; pausedAtChar = 0;
+  setWave(false); setBigIcon(false);
+  document.getElementById('nowPlaying').classList.remove('show');
+}
+
+function setWave(on) { document.getElementById('waveform').classList.toggle('playing', on); }
+function setBigIcon(playing) {
+  document.getElementById('bigIcon').className = playing ? 'fa-solid fa-pause' : 'fa-solid fa-play';
+}
+
+// ── DOWNLOAD via Vercel Serverless API ────────────────────
+async function fetchAudioForDownload(text) {
+  document.getElementById('dlNote').textContent = 'Fetching downloadable audio...';
+  const lang = document.getElementById('lang').value.split('-')[0];
   const chunks = chunkText(text, 190);
-  const blobs  = [];
-
-  const makeUrl = (chunk) =>
-    `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${langCode}&client=tw-ob`;
-
-  const proxies = [
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-  ];
+  const blobs = [];
 
   for (const chunk of chunks) {
-    let ok = false;
-    for (const px of proxies) {
+    try {
+      // Call our own Vercel serverless function — no CORS issues
+      const url = `/api/tts?text=${encodeURIComponent(chunk)}&lang=${lang}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error('API error ' + res.status);
+      const blob = await res.blob();
+      if (blob.size < 100) throw new Error('Empty response');
+      blobs.push(blob);
+    } catch(e) {
+      // If serverless API fails, try a CORS proxy as final fallback
       try {
-        const res = await fetch(px(makeUrl(chunk)), { signal: AbortSignal.timeout(7000) });
-        if (!res.ok) continue;
-        const b = await res.blob();
-        if (b.size < 200) continue;
-        blobs.push(b);
-        ok = true;
-        break;
-      } catch(e) { continue; }
+        const target = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${lang}&client=tw-ob`;
+        const proxy  = `https://corsproxy.io/?${encodeURIComponent(target)}`;
+        const res    = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) throw new Error('proxy failed');
+        const blob = await res.blob();
+        if (blob.size < 100) throw new Error('empty');
+        blobs.push(blob);
+      } catch(e2) {
+        document.getElementById('dlNote').textContent = 'Download unavailable — audio is playing above via browser speech.';
+        return;
+      }
     }
-    if (!ok) { blobs.length = 0; break; } // give up if any chunk fails
   }
 
   if (blobs.length > 0) {
     currentBlob = new Blob(blobs, { type: 'audio/mpeg' });
     setDlEnabled(true);
-    document.getElementById('dlNote').textContent = 'Audio ready — click a format to download';
-  } else {
-    document.getElementById('dlNote').textContent = 'Download unavailable (proxy blocked). Audio is still playing above.';
+    document.getElementById('dlNote').textContent = 'Ready — click MP3, WAV, or OGG to download';
+    showOk('Audio file ready to download!');
   }
 }
 
@@ -679,45 +706,22 @@ function chunkText(text, max) {
   return out;
 }
 
-// ─── Controls ─────────────────────────────────────────────
-function togglePause() {
-  if (!synth.speaking && currentText) { speakWithBestVoice(currentText); return; }
-  if (synth.paused) { synth.resume(); setWave(true); setBigIcon(true); }
-  else { synth.pause(); setWave(false); setBigIcon(false); }
-}
-
-function restartSpeech() {
-  synth.cancel();
-  if (currentText) speakWithBestVoice(currentText);
-}
-
-function stopSpeech() {
-  synth.cancel();
-  setWave(false); setBigIcon(false);
-  document.getElementById('nowPlaying').classList.remove('show');
-}
-
-function setWave(on) { document.getElementById('waveform').classList.toggle('playing', on); }
-function setBigIcon(playing) {
-  document.getElementById('bigIcon').className = playing ? 'fa-solid fa-pause' : 'fa-solid fa-play';
-}
-
-// ─── Download ─────────────────────────────────────────────
+// ── DOWNLOAD ──────────────────────────────────────────────
 function setDlEnabled(on) {
   ['dlMp3','dlWav','dlOgg'].forEach(id => document.getElementById(id).disabled = !on);
 }
 
 async function downloadAudio(fmt) {
-  if (!currentBlob) { showErr('Audio file not ready yet — wait a moment and try again.'); return; }
-  const id = 'dl' + fmt[0].toUpperCase() + fmt.slice(1);
+  if (!currentBlob) { showErr('Audio file not ready yet.'); return; }
+  const id  = 'dl' + fmt[0].toUpperCase() + fmt.slice(1);
   const btn = document.getElementById(id);
   const orig = btn.innerHTML;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-ss"></i>';
-  btn.disabled = true;
+  btn.disabled  = true;
   try {
     let blob = currentBlob;
     if (fmt === 'wav') {
-      const ab = await currentBlob.arrayBuffer();
+      const ab  = await currentBlob.arrayBuffer();
       const ctx = new AudioContext();
       const dec = await ctx.decodeAudioData(ab);
       blob = bufToWav(dec);
@@ -725,7 +729,7 @@ async function downloadAudio(fmt) {
       blob = new Blob([currentBlob], { type: 'audio/ogg' });
     }
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a   = document.createElement('a');
     a.href = url; a.download = 'voiceflow-' + Date.now() + '.' + fmt;
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
@@ -752,13 +756,9 @@ function bufToWav(b) {
   return new Blob([ab], { type: 'audio/wav' });
 }
 
-// ─── Status helpers ───────────────────────────────────────
-function showStatus(type, msg) {
-  if (type === 'gen') { document.getElementById('genMsg').textContent = msg; document.getElementById('sGen').classList.add('show'); }
-}
-function hideStatus(type) {
-  if (type === 'gen') document.getElementById('sGen').classList.remove('show');
-}
+// ── Status ────────────────────────────────────────────────
+function showStatus(t, msg) { document.getElementById('genMsg').textContent = msg; document.getElementById('sGen').classList.add('show'); }
+function hideStatus(t)      { document.getElementById('sGen').classList.remove('show'); }
 function showErr(msg) {
   document.getElementById('errMsg').textContent = msg;
   document.getElementById('sErr').classList.add('show');
@@ -776,5 +776,3 @@ function rate(n) {
   document.getElementById('fbOk').style.display = 'flex';
 }
 </script>
-</body>
-</html>
