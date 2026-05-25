@@ -385,7 +385,7 @@ audio{width:100%;border-radius:6px;accent-color:var(--accent);height:32px}
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 let translateOn=false, currentBlob=null, currentText='', zoomLevel=1.0;
-let pdfDoc=null;
+let pdfDoc=null, browserSpeechMode=false, speechPaused=false;
 
 // ── Lang ─────────────────────────────────────────────────
 function parseLang(){const[lang,voice]=document.getElementById('lang').value.split('|');return{lang,voice};}
@@ -400,14 +400,12 @@ function onLangChange(){
   }
 }
 
-// ── Translate toggle ──────────────────────────────────────
 function toggleTranslate(){
   translateOn=!translateOn;
   document.getElementById('transToggle').classList.toggle('on',translateOn);
   document.getElementById('transOpts').classList.toggle('show',translateOn);
 }
 
-// ── Text input ────────────────────────────────────────────
 function syncTextBox(){
   const n=document.getElementById('textInput').value.length;
   document.getElementById('charCount').textContent=n.toLocaleString()+' / 5,000 characters';
@@ -425,7 +423,7 @@ function zoomIn(){setZoom(zoomLevel+0.1);}
 function zoomOut(){setZoom(zoomLevel-0.1);}
 function zoomReset(){setZoom(1.0);}
 
-// ── Upload / file handling ────────────────────────────────
+// ── File handling ─────────────────────────────────────────
 async function handleFile(file){
   if(!file)return;
   const ext=file.name.split('.').pop().toLowerCase();
@@ -435,22 +433,21 @@ async function handleFile(file){
   document.getElementById('pdfContainer').style.display='none';
   document.getElementById('docTextBox').style.display='none';
   document.getElementById('docLabel').textContent=file.name;
-
   try{
     if(ext==='pdf'){
       const buf=await file.arrayBuffer();
       pdfDoc=await pdfjsLib.getDocument({data:buf}).promise;
-      // Extract text for TTS
       let fullText='';
       for(let i=1;i<=pdfDoc.numPages;i++){
         const page=await pdfDoc.getPage(i);
         const c=await page.getTextContent();
-        fullText+=c.items.map(s=>s.str).join(' ')+'\n';
+        fullText+=c.items.map(s=>s.str).join(' ')+'
+';
       }
       currentText=fullText.trim().slice(0,5000);
       document.getElementById('pdfContainer').style.display='block';
       await renderPDF();
-    } else {
+    }else{
       let text='';
       if(ext==='txt') text=await file.text();
       else{const buf=await file.arrayBuffer();const r=await mammoth.extractRawText({arrayBuffer:buf});text=r.value;}
@@ -478,13 +475,12 @@ async function renderPDF(){
     canvas.width=scaled.width; canvas.height=scaled.height;
     const div=document.createElement('div');
     div.className='doc-page'; div.style.width=scaled.width+'px';
-    div.appendChild(canvas);
-    container.appendChild(div);
+    div.appendChild(canvas); container.appendChild(div);
     await page.render({canvasContext:canvas.getContext('2d'),viewport:scaled}).promise;
   }
 }
 
-// ── Convert / Generate ────────────────────────────────────
+// ── Convert ───────────────────────────────────────────────
 async function convert(){
   const textArea=document.getElementById('textInput').value.trim();
   const text=currentText||textArea;
@@ -506,7 +502,7 @@ async function convert(){
     const to=document.getElementById('transTo').value;
     showGen('Translating...');
     try{
-      speakText=await translateText(text,from,to);
+      speakText=await doTranslate(text,from,to);
       document.getElementById('transText').textContent=speakText;
       document.getElementById('transDisplay').classList.add('show');
     }catch(e){
@@ -517,14 +513,15 @@ async function convert(){
   }
 
   currentText=speakText;
-  showGen('Generating audio file...');
+  showGen('Generating audio...');
 
-  try{
-    await generateAudio(speakText,voice,lang);
-    showOk('Audio ready — press Play!');
-  }catch(e){
-    useBrowserSpeech(speakText,lang);
-    showOk('Playing via browser speech engine.');
+  // Try to get a real downloadable audio file
+  const audioOk = await tryGetAudio(speakText, voice);
+
+  if(!audioOk){
+    // Fall back to browser speech
+    showGen('Using browser speech engine...');
+    useBrowserSpeech(speakText, lang);
   }
 
   hideGen();
@@ -533,83 +530,134 @@ async function convert(){
   document.getElementById('genText').textContent='Generate Speech';
 }
 
-// ── StreamElements via CORS proxy ────────────────────────
-async function generateAudio(text,voice,lang){
-  const target=`https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`;
-  const url=`https://corsproxy.io/?${encodeURIComponent(target)}`;
-  const res=await fetch(url);
-  if(!res.ok) throw new Error('service_error');
-  const blob=await res.blob();
-  if(blob.size<500) throw new Error('empty_audio');
-  currentBlob=new Blob([blob],{type:'audio/mpeg'});
-  const audioUrl=URL.createObjectURL(currentBlob);
-  const a=document.getElementById('audioEl');
-  a.src=audioUrl;
-  ['dlMp3','dlWav','dlOgg'].forEach(id=>document.getElementById(id).disabled=false);
-  setMeta(voice,lang,text.length);
-  document.getElementById('audioMeta').style.display='flex';
-  a.play().catch(()=>{});
+// ── Try multiple audio sources ────────────────────────────
+async function tryGetAudio(text, voice){
+  // Proxy list — try each in order
+  const target = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`;
+  const proxies = [
+    `https://corsproxy.io/?${encodeURIComponent(target)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
+    `https://cors-proxy.fringe.zone/${target}`,
+  ];
+
+  for(const url of proxies){
+    try{
+      showGen('Fetching audio (' + (proxies.indexOf(url)+1) + '/' + proxies.length + ')...');
+      const res = await fetch(url, {signal: AbortSignal.timeout(8000)});
+      if(!res.ok) continue;
+      const blob = await res.blob();
+      if(blob.size < 500) continue;
+      // Success!
+      currentBlob = new Blob([blob], {type:'audio/mpeg'});
+      const audioUrl = URL.createObjectURL(currentBlob);
+      const a = document.getElementById('audioEl');
+      a.src = audioUrl;
+      browserSpeechMode = false;
+      enableDownloads(true);
+      setMeta(voice, text.length);
+      document.getElementById('audioMeta').style.display='flex';
+      a.play().catch(()=>{});
+      showOk('Audio ready — press Play to listen!');
+      return true;
+    }catch(e){ continue; }
+  }
+  return false;
 }
 
 // ── Browser speech fallback ───────────────────────────────
-function useBrowserSpeech(text,lang){
-  const synth=window.speechSynthesis;
+function useBrowserSpeech(text, lang){
+  const synth = window.speechSynthesis;
   synth.cancel();
-  const voices=synth.getVoices();
-  const prefix=lang.split('-')[0];
-  const v=voices.find(v=>v.lang.toLowerCase().startsWith(prefix))||voices.find(v=>v.lang.startsWith('en'))||voices[0];
-  const utt=new SpeechSynthesisUtterance(text);
-  if(v) utt.voice=v;
-  utt.rate=parseFloat(document.getElementById('speed').value);
-  utt.lang=lang;
-  utt.onstart=()=>{document.getElementById('waveform').classList.add('playing');setBigPlay(true);};
-  utt.onend=()=>{document.getElementById('waveform').classList.remove('playing');setBigPlay(false);};
+  speechPaused = false;
+  browserSpeechMode = true;
+  const voices = synth.getVoices();
+  const prefix = lang.split('-')[0];
+  const v = voices.find(v=>v.lang.toLowerCase().startsWith(prefix))
+         || voices.find(v=>v.lang.startsWith('en'))
+         || voices[0];
+  const utt = new SpeechSynthesisUtterance(text);
+  if(v) utt.voice = v;
+  utt.rate = parseFloat(document.getElementById('speed').value);
+  utt.lang = lang;
+  utt.onstart = ()=>{ setWave(true); setBigPlay(true); };
+  utt.onpause = ()=>{ setWave(false); setBigPlay(false); };
+  utt.onresume = ()=>{ setWave(true); setBigPlay(true); };
+  utt.onend = ()=>{ setWave(false); setBigPlay(false); speechPaused=false; };
   synth.speak(utt);
-  setMeta(v?v.name:'Browser',lang,text.length);
+  enableDownloads(false);
+  setMeta(v?v.name:'Browser Voice', text.length);
   document.getElementById('audioMeta').style.display='flex';
+  showOk('Playing via browser. Download unavailable in this mode.');
 }
 
-// ── Translate ─────────────────────────────────────────────
-async function translateText(text,from,to){
-  const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,500))}&langpair=${from}|${to}`;
-  const res=await fetch(url);
-  const data=await res.json();
-  if(data.responseStatus===200) return data.responseData.translatedText;
-  throw new Error('Translation failed');
-}
-
-// ── Player controls ───────────────────────────────────────
+// ── Play / Pause ──────────────────────────────────────────
 function togglePlay(){
-  const a=document.getElementById('audioEl');
-  if(a.src&&a.src!==window.location.href){
-    a.paused?a.play():a.pause();
+  if(browserSpeechMode){
+    const synth = window.speechSynthesis;
+    if(synth.speaking && !synth.paused){
+      synth.pause();
+      speechPaused = true;
+      setWave(false);
+      setBigPlay(false);
+    } else if(synth.paused){
+      synth.resume();
+      speechPaused = false;
+      setWave(true);
+      setBigPlay(true);
+    } else if(currentText){
+      // Restart
+      useBrowserSpeech(currentText, parseLang().lang);
+    }
   } else {
-    window.speechSynthesis&&window.speechSynthesis.paused?window.speechSynthesis.resume():null;
+    const a = document.getElementById('audioEl');
+    if(!a.src || a.src === window.location.href) return;
+    if(a.paused){ a.play(); } else { a.pause(); }
   }
 }
-function restartAudio(){const a=document.getElementById('audioEl');if(a.src&&a.src!==window.location.href){a.currentTime=0;a.play();}}
-function stopAudio(){
-  const a=document.getElementById('audioEl');
-  a.pause();a.currentTime=0;
-  window.speechSynthesis&&window.speechSynthesis.cancel();
-  document.getElementById('waveform').classList.remove('playing');
-  setBigPlay(false);
+
+function restartAudio(){
+  if(browserSpeechMode){
+    window.speechSynthesis.cancel();
+    speechPaused = false;
+    if(currentText) useBrowserSpeech(currentText, parseLang().lang);
+  } else {
+    const a=document.getElementById('audioEl');
+    if(a.src && a.src!==window.location.href){a.currentTime=0;a.play();}
+  }
 }
-function onPlay(){document.getElementById('waveform').classList.add('playing');setBigPlay(true);}
-function onPause(){document.getElementById('waveform').classList.remove('playing');setBigPlay(false);}
-function onEnded(){document.getElementById('waveform').classList.remove('playing');setBigPlay(false);}
-function setBigPlay(playing){
-  document.getElementById('bigPlayIcon').className=playing?'fa-solid fa-pause':'fa-solid fa-play';
+
+function stopAudio(){
+  window.speechSynthesis.cancel();
+  speechPaused = false;
+  const a=document.getElementById('audioEl');
+  a.pause(); a.currentTime=0;
+  setWave(false); setBigPlay(false);
+}
+
+// ── Audio element events ──────────────────────────────────
+function onPlay(){setWave(true);setBigPlay(true);}
+function onPause(){setWave(false);setBigPlay(false);}
+function onEnded(){setWave(false);setBigPlay(false);}
+
+function setWave(on){ document.getElementById('waveform').classList.toggle('playing',on); }
+function setBigPlay(isPlaying){
+  document.getElementById('bigPlayIcon').className = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
 }
 
 // ── Download ──────────────────────────────────────────────
+function enableDownloads(on){
+  ['dlMp3','dlWav','dlOgg'].forEach(id=>document.getElementById(id).disabled=!on);
+}
+
 async function downloadAudio(fmt){
-  if(!currentBlob){showErr('No audio generated yet.');return;}
+  if(!currentBlob){showErr('No downloadable audio. Browser speech mode cannot be downloaded.');return;}
   const id='dl'+fmt.charAt(0).toUpperCase()+fmt.slice(1);
   const btn=document.getElementById(id);
-  const orig=btn.innerHTML; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin-s"></i>'; btn.disabled=true;
+  const orig=btn.innerHTML;
+  btn.innerHTML='<i class="fa-solid fa-spinner fa-spin-s"></i>';
+  btn.disabled=true;
   try{
-    let blob=currentBlob,ext=fmt;
+    let blob=currentBlob, ext=fmt;
     if(fmt==='wav'){
       const ab=await currentBlob.arrayBuffer();
       const ctx=new AudioContext();
@@ -619,10 +667,14 @@ async function downloadAudio(fmt){
       blob=new Blob([currentBlob],{type:'audio/ogg'});
     }
     const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=`voiceflow-${Date.now()}.${ext}`;
-    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    const a=document.createElement('a');
+    a.href=url; a.download=`voiceflow-${Date.now()}.${ext}`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    showOk('Download started!');
   }catch(e){showErr('Download failed: '+e.message);}
-  btn.innerHTML=orig; btn.disabled=false;
+  btn.innerHTML=orig;
+  btn.disabled=!currentBlob;
 }
 
 function audioBufferToWav(buf){
@@ -639,8 +691,17 @@ function audioBufferToWav(buf){
   return new Blob([ab],{type:'audio/wav'});
 }
 
+// ── Translate ─────────────────────────────────────────────
+async function doTranslate(text,from,to){
+  const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,500))}&langpair=${from}|${to}`;
+  const res=await fetch(url);
+  const data=await res.json();
+  if(data.responseStatus===200) return data.responseData.translatedText;
+  throw new Error('Translation failed');
+}
+
 // ── Meta / status ─────────────────────────────────────────
-function setMeta(voice,lang,chars){
+function setMeta(voice, chars){
   document.getElementById('metaVoice').textContent=voice;
   document.getElementById('metaLang').textContent=document.getElementById('lang').selectedOptions[0].text;
   document.getElementById('metaSpeed').textContent=parseFloat(document.getElementById('speed').value).toFixed(1)+'x speed';
@@ -648,12 +709,9 @@ function setMeta(voice,lang,chars){
 }
 function showGen(msg){document.getElementById('statusMsg').textContent=msg;document.getElementById('statusGen').classList.add('show');}
 function hideGen(){document.getElementById('statusGen').classList.remove('show');}
-function showErr(msg){document.getElementById('errMsg').textContent=msg;document.getElementById('statusErr').classList.add('show');setTimeout(()=>clearErr(),6000);}
+function showErr(msg){document.getElementById('errMsg').textContent=msg;document.getElementById('statusErr').classList.add('show');setTimeout(clearErr,6000);}
 function clearErr(){document.getElementById('statusErr').classList.remove('show');}
-function showOk(msg){document.getElementById('okMsg').textContent=msg;document.getElementById('statusOk').classList.add('show');setTimeout(()=>clearOk(),4000);}
+function showOk(msg){document.getElementById('okMsg').textContent=msg;document.getElementById('statusOk').classList.add('show');setTimeout(clearOk,4000);}
 function clearOk(){document.getElementById('statusOk').classList.remove('show');}
-
 function rate(n){document.querySelectorAll('.star').forEach((s,i)=>s.classList.toggle('on',i<n));document.getElementById('fbThanks').style.display='flex';}
 </script>
-</body>
-</html>
