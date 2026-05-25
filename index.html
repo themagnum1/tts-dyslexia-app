@@ -429,8 +429,12 @@ async function handleFile(file) {
     else if (ext === 'pdf') text = await readPDF(file);
     else text = await readDOC(file);
     text = text.trim().slice(0, 5000);
+    if (!text) {
+      showErr('File was read but no text was found. Try a different file.');
+      hideFileLoading(); return;
+    }
     currentText = text;
-    document.getElementById('previewBox').textContent = text;
+    document.getElementById('previewBox').innerText = text;
     updateCount();
     document.getElementById('fileName').textContent = file.name;
     document.getElementById('fileBar').classList.add('show');
@@ -460,19 +464,19 @@ function clearFile() {
   const fi = document.getElementById('fileInput');
   fi.value = '';
   document.getElementById('fileBar').classList.remove('show');
-  document.getElementById('previewBox').textContent = '';
+  document.getElementById('previewBox').innerText = '';
   currentText = ''; updateCount();
 }
 function showFileLoading(msg) { document.getElementById('fileLoadMsg').textContent = msg; document.getElementById('fileLoading').style.display = 'block'; }
 function hideFileLoading() { document.getElementById('fileLoading').style.display = 'none'; }
 
 function updateCount() {
-  const n = (document.getElementById('previewBox').textContent || '').length;
+  const n = (document.getElementById('previewBox').innerText || '').length;
   const el = document.getElementById('charCount');
   el.textContent = n.toLocaleString() + ' / 5,000 characters';
   el.className = 'char-count' + (n > 4500 ? ' warn' : '');
 }
-function getText() { return (document.getElementById('previewBox').textContent || '').trim(); }
+function getText() { return (document.getElementById('previewBox').innerText || '').trim(); }
 
 // ── Lang / Translate ──────────────────────────────────────
 function onLangChange() {
@@ -756,7 +760,7 @@ function hideStatus(t)      { document.getElementById('sGen').classList.remove('
 function showErr(msg) {
   document.getElementById('errMsg').textContent = msg;
   document.getElementById('sErr').classList.add('show');
-  setTimeout(() => document.getElementById('sErr').classList.remove('show'), 6000);
+  // Keep error visible until user acts
 }
 function clearErr() { document.getElementById('sErr').classList.remove('show'); }
 function showOk(msg) {
