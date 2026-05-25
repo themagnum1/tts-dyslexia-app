@@ -161,24 +161,24 @@ footer a{color:#2ecc71;text-decoration:none}
     <!-- Upload -->
     <div class="card">
       <div class="card-title"><i class="fa-solid fa-file-arrow-up"></i> Upload Document</div>
-      <div class="upload-area" id="uploadArea">
-        <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt"
-               style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:2"/>
-        <div class="up-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-        <div class="up-title">Click anywhere here or drop your file</div>
-        <div class="up-sub">Text is extracted and shown below</div>
-        <div class="fmt-pills">
+      <div style="border:2px dashed #CBD5E0;border-radius:10px;padding:20px;text-align:center;background:#fafbfc;margin-bottom:10px">
+        <div style="width:46px;height:46px;background:#e8f8f5;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:1.15rem;color:var(--accent)">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+        </div>
+        <div style="font-size:.88rem;font-weight:600;margin-bottom:6px">Select your document</div>
+        <div class="fmt-pills" style="margin-bottom:12px">
           <span class="fmt-pill"><i class="fa-solid fa-file-pdf"></i> PDF</span>
           <span class="fmt-pill"><i class="fa-solid fa-file-word"></i> DOC</span>
           <span class="fmt-pill"><i class="fa-solid fa-file-word"></i> DOCX</span>
           <span class="fmt-pill"><i class="fa-solid fa-file-lines"></i> TXT</span>
         </div>
+        <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt"
+               style="display:block;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:.84rem;cursor:pointer;background:white;color:var(--text)"/>
       </div>
       <div class="file-bar" id="fileBar">
         <div class="file-bar-left"><i class="fa-solid fa-file-circle-check"></i><span id="fileName"></span></div>
         <button class="rm-btn" onclick="clearFile()"><i class="fa-solid fa-xmark"></i> Remove</button>
       </div>
-      <!-- Loading bar -->
       <div id="fileLoading" style="display:none;margin-top:10px">
         <div style="height:3px;background:#e2e8f0;border-radius:2px;overflow:hidden">
           <div style="height:100%;background:linear-gradient(90deg,var(--blue),var(--accent));animation:prog 1.2s ease-in-out infinite"></div>
@@ -412,25 +412,11 @@ loadVoices();
 if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
 
 // ── File Upload ───────────────────────────────────────────
-const fileInput = document.getElementById('fileInput');
-fileInput.addEventListener('change', () => {
-  if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
-});
-
-// Drag and drop on the upload area
-const uploadArea = document.getElementById('uploadArea');
-['dragenter','dragover'].forEach(evt => uploadArea.addEventListener(evt, e => {
-  e.preventDefault(); e.stopPropagation(); uploadArea.classList.add('over');
-}));
-['dragleave','dragend'].forEach(evt => uploadArea.addEventListener(evt, e => {
-  uploadArea.classList.remove('over');
-}));
-uploadArea.addEventListener('drop', e => {
-  e.preventDefault(); e.stopPropagation();
-  uploadArea.classList.remove('over');
-  const f = e.dataTransfer.files[0];
-  if (f) handleFile(f);
-});
+document.getElementById('fileInput').onchange = function() {
+  if (this.files && this.files.length > 0) {
+    handleFile(this.files[0]);
+  }
+};
 
 async function handleFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
@@ -471,7 +457,8 @@ async function readDOC(file) {
   return r.value;
 }
 function clearFile() {
-  fileInput.value = '';
+  const fi = document.getElementById('fileInput');
+  fi.value = '';
   document.getElementById('fileBar').classList.remove('show');
   document.getElementById('previewBox').textContent = '';
   currentText = ''; updateCount();
