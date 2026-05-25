@@ -161,19 +161,18 @@ footer a{color:#2ecc71;text-decoration:none}
     <!-- Upload -->
     <div class="card">
       <div class="card-title"><i class="fa-solid fa-file-arrow-up"></i> Upload Document</div>
-      <div class="upload-area" id="uploadArea">
-        <label for="fileInput">
-          <div class="up-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-          <div class="up-title">Click here to browse or drop your file</div>
-          <div class="up-sub">Text is extracted and shown below</div>
-          <div class="fmt-pills">
-            <span class="fmt-pill"><i class="fa-solid fa-file-pdf"></i> PDF</span>
-            <span class="fmt-pill"><i class="fa-solid fa-file-word"></i> DOC</span>
-            <span class="fmt-pill"><i class="fa-solid fa-file-word"></i> DOCX</span>
-            <span class="fmt-pill"><i class="fa-solid fa-file-lines"></i> TXT</span>
-          </div>
-        </label>
-        <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt" style="display:none"/>
+      <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt"
+               style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"/>
+        <div class="up-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+        <div class="up-title">Click here to browse or drop your file</div>
+        <div class="up-sub">Text is extracted and shown below</div>
+        <div class="fmt-pills">
+          <span class="fmt-pill"><i class="fa-solid fa-file-pdf"></i> PDF</span>
+          <span class="fmt-pill"><i class="fa-solid fa-file-word"></i> DOC</span>
+          <span class="fmt-pill"><i class="fa-solid fa-file-word"></i> DOCX</span>
+          <span class="fmt-pill"><i class="fa-solid fa-file-lines"></i> TXT</span>
+        </div>
       </div>
       <div class="file-bar" id="fileBar">
         <div class="file-bar-left"><i class="fa-solid fa-file-circle-check"></i><span id="fileName"></span></div>
@@ -418,10 +417,10 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
 });
 const uploadArea = document.getElementById('uploadArea');
-uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('over'); });
-uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('over'));
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); uploadArea.classList.add('over'); });
+uploadArea.addEventListener('dragleave', e => { e.preventDefault(); uploadArea.classList.remove('over'); });
 uploadArea.addEventListener('drop', e => {
-  e.preventDefault(); uploadArea.classList.remove('over');
+  e.preventDefault(); e.stopPropagation(); uploadArea.classList.remove('over');
   if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
 });
 
