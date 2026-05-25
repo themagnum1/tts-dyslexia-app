@@ -35,7 +35,7 @@ header{background:var(--navy);height:62px;display:flex;align-items:center;justif
 .card-title i{color:var(--accent);font-size:.88rem}
 
 /* Upload */
-.upload-area{border:2px dashed #CBD5E0;border-radius:10px;padding:24px 16px;text-align:center;transition:all .2s;background:#fafbfc;position:relative}
+.upload-area{border:2px dashed #CBD5E0;border-radius:10px;padding:24px 16px;text-align:center;transition:all .2s;background:#fafbfc;position:relative;overflow:hidden}
 .upload-area.over{border-color:var(--accent);background:#f0faf8}
 .upload-area label{display:block;cursor:pointer}
 .up-icon{width:46px;height:46px;background:#e8f8f5;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:1.15rem;color:var(--accent)}
@@ -161,11 +161,11 @@ footer a{color:#2ecc71;text-decoration:none}
     <!-- Upload -->
     <div class="card">
       <div class="card-title"><i class="fa-solid fa-file-arrow-up"></i> Upload Document</div>
-      <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+      <div class="upload-area" id="uploadArea">
         <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt"
-               style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"/>
+               style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:2"/>
         <div class="up-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-        <div class="up-title">Click here to browse or drop your file</div>
+        <div class="up-title">Click anywhere here or drop your file</div>
         <div class="up-sub">Text is extracted and shown below</div>
         <div class="fmt-pills">
           <span class="fmt-pill"><i class="fa-solid fa-file-pdf"></i> PDF</span>
@@ -416,12 +416,20 @@ const fileInput = document.getElementById('fileInput');
 fileInput.addEventListener('change', () => {
   if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
 });
+
+// Drag and drop on the upload area
 const uploadArea = document.getElementById('uploadArea');
-uploadArea.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); uploadArea.classList.add('over'); });
-uploadArea.addEventListener('dragleave', e => { e.preventDefault(); uploadArea.classList.remove('over'); });
+['dragenter','dragover'].forEach(evt => uploadArea.addEventListener(evt, e => {
+  e.preventDefault(); e.stopPropagation(); uploadArea.classList.add('over');
+}));
+['dragleave','dragend'].forEach(evt => uploadArea.addEventListener(evt, e => {
+  uploadArea.classList.remove('over');
+}));
 uploadArea.addEventListener('drop', e => {
-  e.preventDefault(); e.stopPropagation(); uploadArea.classList.remove('over');
-  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  e.preventDefault(); e.stopPropagation();
+  uploadArea.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
 });
 
 async function handleFile(file) {
