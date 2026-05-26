@@ -196,11 +196,11 @@ footer a{color:#2ecc71;text-decoration:none}
       </div>
       <!-- Using textarea — simplest, most reliable across all browsers -->
       <textarea id="previewBox"
-        placeholder="Upload a file above — or type / paste your text here..."
+        placeholder="Upload a file above — or type / paste your text here (up to 50,000 characters)..."
         oninput="onPreviewInput()"
         rows="10"
         style="width:100%;min-height:180px;max-height:340px;border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;font-size:.9rem;line-height:1.85;color:var(--text);font-family:'DM Sans',sans-serif;resize:vertical;background:#fafbfc;transition:border-color .2s;outline:none"></textarea>
-      <div class="char-count" id="charCount">0 / 5,000 characters</div>
+      <div class="char-count" id="charCount">0 / 50,000 characters</div>
     </div>
 
     <!-- SETTINGS -->
@@ -235,6 +235,12 @@ footer a{color:#2ecc71;text-decoration:none}
           </select>
         </div>
         <div class="field">
+          <div class="field-lbl"><i class="fa-solid fa-microphone"></i> Voice</div>
+          <select id="voiceSel" style="font-size:.78rem"></select>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="field" style="grid-column:1/-1">
           <div class="field-lbl"><i class="fa-solid fa-gauge-high"></i> Speed <span id="speedVal" style="color:var(--accent)">1.0x</span></div>
           <div class="speed-row">
             <span style="font-size:.7rem;color:var(--muted)">Slow</span>
@@ -373,9 +379,45 @@ let isPaused = false;
 let translateOn = false;
 
 // Load voices
-function loadVoices() { voices = synth.getVoices(); }
+function loadVoices() {
+  voices = synth.getVoices();
+  populateVoiceSel();
+}
 loadVoices();
 if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+
+function populateVoiceSel() {
+  const sel = document.getElementById('voiceSel');
+  if (!sel || !voices.length) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="auto">⚡ Auto-select best voice</option>';
+  // Group by language
+  const groups = {};
+  voices.forEach((v, i) => {
+    const lang = v.lang || 'Unknown';
+    if (!groups[lang]) groups[lang] = [];
+    groups[lang].push({ v, i });
+  });
+  // Sort: English first, then alphabetical
+  const sorted = Object.keys(groups).sort((a, b) => {
+    if (a.startsWith('en') && !b.startsWith('en')) return -1;
+    if (!a.startsWith('en') && b.startsWith('en')) return 1;
+    return a.localeCompare(b);
+  });
+  sorted.forEach(lang => {
+    const grp = document.createElement('optgroup');
+    grp.label = lang;
+    groups[lang].forEach(({ v, i }) => {
+      const o = document.createElement('option');
+      o.value = i;
+      const tag = v.localService ? '' : ' ✦';
+      o.textContent = v.name + tag;
+      grp.appendChild(o);
+    });
+    sel.appendChild(grp);
+  });
+  if (current) sel.value = current;
+}
 
 // ─── FILE INPUT — simple direct event ────────────────────
 const fi = document.getElementById('fi');
@@ -452,7 +494,7 @@ function processFile(file) {
 }
 
 function setPreview(rawText, fileName) {
-  const text = rawText.trim().slice(0, 5000);
+  const text = rawText.trim().slice(0, 50000);
   if (!text) { showErr('No readable text found in this file.'); return; }
 
   // Use textarea .value — most reliable way to set text in all browsers
@@ -482,8 +524,8 @@ function onPreviewInput() {
 function updateCount() {
   const n = (document.getElementById('previewBox').value || '').length;
   const el = document.getElementById('charCount');
-  el.textContent = n.toLocaleString() + ' / 5,000 characters';
-  el.className = 'char-count' + (n > 4500 ? ' warn' : '');
+  el.textContent = n.toLocaleString() + ' / 50,000 characters';
+  el.className = 'char-count' + (n > 45000 ? ' warn' : '');
 }
 
 // ─── LANGUAGE / TRANSLATE ─────────────────────────────────
@@ -514,7 +556,7 @@ async function convert() {
   const text = document.getElementById('previewBox').value.trim();
   clearErr(); clearOk();
   if (!text) { showErr('Please upload a file or type text in the preview box first.'); return; }
-  if (text.length > 5000) { showErr('Text must be under 5,000 characters.'); return; }
+  if (text.length > 50000) { showErr('Text must be under 50,000 characters.'); return; }
 
   synth.cancel();
   isSpeaking = false; isPaused = false; pausedChar = 0;
@@ -558,6 +600,13 @@ async function convert() {
 // ─── SPEECH ENGINE ────────────────────────────────────────
 function getBestVoice(locale) {
   if (!voices.length) voices = synth.getVoices();
+  // Check if user picked a specific voice
+  const sel = document.getElementById('voiceSel');
+  if (sel && sel.value !== 'auto' && sel.value !== '') {
+    const idx = parseInt(sel.value);
+    if (!isNaN(idx) && voices[idx]) return voices[idx];
+  }
+  // Auto-select best voice
   const code = locale.split('-')[0];
   const preferred = ['Google UK English Female','Google US English','Google UK English Male',
                      'Google','Neural','Natural','Premium','Enhanced'];
